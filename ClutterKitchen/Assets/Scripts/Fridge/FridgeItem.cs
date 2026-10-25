@@ -1,3 +1,4 @@
+
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -18,6 +19,9 @@ public class FridgeItem : MonoBehaviour
 
     private Transform originalParent;
     private bool isDragging;
+
+    // Prevent multiple items from being dragged at once.
+    private static FridgeItem activeDraggedItem;
 
     private void Awake()
     {
@@ -66,6 +70,9 @@ public class FridgeItem : MonoBehaviour
 
     private void TryGrab()
     {
+        if (activeDraggedItem != null)
+            return;
+
         if (EventSystem.current == null || dragLayer == null)
             return;
 
@@ -78,13 +85,30 @@ public class FridgeItem : MonoBehaviour
 
         EventSystem.current.RaycastAll(pointer, hits);
 
-        // Only grab the topmost UI object.
-        if (hits.Count == 0 || hits[0].gameObject != gameObject)
+        // Find the first ingredient detected under the cursor.
+        FridgeItem clickedItem = null;
+
+        foreach (RaycastResult hit in hits)
+        {
+            FridgeItem found =
+                hit.gameObject.GetComponentInParent<FridgeItem>();
+
+            if (found != null)
+            {
+                clickedItem = found;
+                break;
+            }
+        }
+
+        // Only the selected ingredient can start dragging.
+        if (clickedItem != this)
             return;
 
         isDragging = true;
+        activeDraggedItem = this;
         originalParent = transform.parent;
 
+        // Move item above other UI elements during dragging.
         rect.SetParent(dragLayer, true);
         rect.SetAsLastSibling();
 
@@ -97,6 +121,9 @@ public class FridgeItem : MonoBehaviour
 
     private void FollowMouse()
     {
+        if (dragLayer == null)
+            return;
+
         Canvas canvas = dragLayer.GetComponentInParent<Canvas>();
 
         Camera uiCamera = null;
@@ -120,13 +147,19 @@ public class FridgeItem : MonoBehaviour
     private void ReleaseItem()
     {
         isDragging = false;
+        activeDraggedItem = null;
+
         canvasGroup.blocksRaycasts = true;
+
+        if (EventSystem.current == null)
+            return;
 
         PointerEventData pointer =
             new PointerEventData(EventSystem.current);
 
         pointer.position = Input.mousePosition;
 
+        // Check whether item was dropped into collection basket.
         if (collectionZone != null &&
             collectionZone.Contains(pointer))
         {
@@ -134,16 +167,28 @@ public class FridgeItem : MonoBehaviour
                 inventory.AddIngredient(ingredientID))
             {
                 Debug.Log("COLLECTED: " + ingredientID);
+
                 Destroy(gameObject);
                 return;
             }
         }
 
-        // Leave the item where it was dropped.
+        // Otherwise, leave the food where it was dropped.
         Vector3 droppedPosition = rect.position;
 
         rect.SetParent(originalParent, true);
         rect.position = droppedPosition;
         rect.SetAsLastSibling();
     }
+
+    private void OnDisable()
+    {
+        if (activeDraggedItem == this)
+        {
+            activeDraggedItem = null;
+        }
+
+        isDragging = false;
+    }
 }
+
